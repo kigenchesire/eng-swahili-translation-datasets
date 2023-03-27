@@ -1,0 +1,78 @@
+import tensorflow as tf
+import numpy as np
+
+# Load the trained NMT model
+model = tf.keras.models.load_model('path/to/trained/model')
+
+# Define the beam search function
+def beam_search_decoder(predictions, beam_size):
+    # Initialize the list of completed translations and their scores
+    completed_translations = []
+    completed_scores = []
+    
+    # Initialize the list of partial translations and their scores
+    partial_translations = [{'tokens': [1], 'score': 0}]
+    partial_scores = [0]
+
+    # Set the maximum length of the generated translations
+    max_length = predictions.shape[1] - 1
+    
+    # Loop until we generate the required number of translations
+    while len(completed_translations) < beam_size:
+        # Generate the next set of partial translations and their scores
+        next_partial_translations = []
+        next_partial_scores = []
+        
+        for i, partial_translation in enumerate(partial_translations):
+            # Get the last token in the partial translation
+            last_token = partial_translation['tokens'][-1]
+
+            # If we have generated the end-of-sentence token, add the translation to the list of completed translations
+            if last_token == 2:
+                completed_translations.append(partial_translation['tokens'][1:-1])
+                completed_scores.append(partial_translation['score'])
+            else:
+                # Generate the next set of tokens and their probabilities using the NMT model
+                next_token_probs = predictions[i, len(partial_translation['tokens']) - 1, :]
+                next_token_probs = np.log(next_token_probs) + partial_scores[i]
+                
+                # Get the indices of the top-k tokens with the highest probabilities
+                topk_indices = np.argsort(next_token_probs)[-beam_size:]
+
+                # Add the next set of partial translations and their scores
+                for index in topk_indices:
+                    next_partial_translation = {
+                        'tokens': partial_translation['tokens'] + [index],
+                        'score': next_token_probs[index]
+                    }
+                    next_partial_translations.append(next_partial_translation)
+                    next_partial_scores.append(next_token_probs[index])
+        
+        # Sort the list of partial translations by their scores and select the top-k translations
+        partial_translations = [next_partial_translations[i] for i in np.argsort(next_partial_scores)[-beam_size:]]
+        partial_scores = [next_partial_scores[i] for i in np.argsort(next_partial_scores)[-beam_size:]]
+    
+    # Sort the list of completed translations by their scores and select the top-1 translation
+    best_translation = completed_translations[np.argmax(completed_scores)]
+    
+    # Get the nearest predictions and their probabilities for the best translation
+    nearest_predictions = []
+    nearest_probs = []
+    
+    for i in range(len(best_translation) - 1):
+        # Generate the next set of tokens and their probabilities using the NMT model
+        next_token_probs = predictions[0, i, :]
+        next_token_probs = np.log(next_token_probs)
+        
+        # Get the index of the predicted token
+        predicted_token = best_translation[i + 1]
+        
+        # Get the indices of the top-k tokens with the highest probabilities, excluding the predicted token
+        topk_indices = np.argsort(next_token_probs)[-beam_size - 1:-1]
+        topk_indices = [index for index in topk_indices if index != predicted_token]
+        
+        # Add the nearest predictions and their probabilities
+        nearest_predictions.append(topk_indices)
+        nearest_probs.append([next_token_probs[index] for index in topk_indices])
+    
+   
